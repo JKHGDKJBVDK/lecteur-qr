@@ -6,8 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lecteur QR">
-<title>Lecteur QR</title>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<title>Lecteur QR &amp; codes-barres</title>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -39,8 +39,8 @@
     position: absolute;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    width: 60%;
-    aspect-ratio: 1;
+    width: 80%;
+    height: 45%;
     border: 2px solid rgba(255, 255, 255, 0.7);
     border-radius: 16px;
     pointer-events: none;
@@ -90,14 +90,14 @@
 </head>
 <body>
 <div id="app">
-  <header>Lecteur QR</header>
+  <header>Lecteur QR &amp; codes-barres</header>
   <div id="videoContainer">
     <video id="video" playsinline muted></video>
     <div id="viseur"></div>
   </div>
   <div id="erreur"></div>
   <div id="resultat">
-    <span id="typeLabel">Contenu du QR code :</span>
+    <span id="typeLabel"></span>
     <div id="contenu"></div>
     <div class="boutons">
       <button id="btnCopier">Copier</button>
@@ -106,57 +106,56 @@
   </div>
 </div>
 
-<canvas id="canvas" hidden></canvas>
-
 <script>
 const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d', { willReadFrequently: true });
 const resultat = document.getElementById('resultat');
+const typeLabel = document.getElementById('typeLabel');
 const contenu = document.getElementById('contenu');
 const erreur = document.getElementById('erreur');
 const btnCopier = document.getElementById('btnCopier');
 const btnReprendre = document.getElementById('btnReprendre');
 
-let scanning = false;
-let stream = null;
+const NOMS_FORMATS = {
+  QR_CODE: 'QR code',
+  CODE_39: 'Code-barres Code 39',
+  CODE_128: 'Code-barres Code 128'
+};
 
-async function demarrerCamera() {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
-      audio: false
-    });
-    video.srcObject = stream;
-    await video.play();
-    scanning = true;
-    requestAnimationFrame(boucleScan);
-  } catch (e) {
-    erreur.textContent = "Impossible d'accéder à la caméra. Vérifiez que la page est en HTTPS et que l'accès caméra est autorisé dans Réglages > Safari.";
-    erreur.style.display = 'block';
+let pause = false;
+
+const hints = new Map();
+hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+  ZXing.BarcodeFormat.QR_CODE,
+  ZXing.BarcodeFormat.CODE_39,
+  ZXing.BarcodeFormat.CODE_128
+]);
+hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+const lecteur = new ZXing.BrowserMultiFormatReader(hints);
+
+lecteur.decodeFromConstraints(
+  {
+    video: {
+      facingMode: 'environment',
+      width: { ideal: 1920 },
+      height: { ideal: 1080 }
+    },
+    audio: false
+  },
+  video,
+  (res) => {
+    if (pause || !res) return;
+    pause = true;
+    afficherResultat(res.getText(), res.getBarcodeFormat());
   }
-}
+).catch(() => {
+  erreur.textContent = "Impossible d'accéder à la caméra. Vérifiez que la page est en HTTPS et que l'accès caméra est autorisé dans Réglages > Apps > Safari > Caméra.";
+  erreur.style.display = 'block';
+});
 
-function boucleScan() {
-  if (!scanning) return;
-  if (video.readyState === video.HAVE_ENOUGH_DATA) {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'dontInvert'
-    });
-    if (code && code.data) {
-      afficherResultat(code.data);
-      return;
-    }
-  }
-  requestAnimationFrame(boucleScan);
-}
-
-function afficherResultat(texte) {
-  scanning = false;
+function afficherResultat(texte, format) {
+  const nomFormat = NOMS_FORMATS[ZXing.BarcodeFormat[format]] || 'Code détecté';
+  typeLabel.textContent = nomFormat + ' — contenu :';
   // Affichage en texte brut uniquement — aucun lien cliquable, aucune action
   contenu.textContent = texte;
   resultat.classList.add('visible');
@@ -176,11 +175,8 @@ btnCopier.addEventListener('click', async () => {
 
 btnReprendre.addEventListener('click', () => {
   resultat.classList.remove('visible');
-  scanning = true;
-  requestAnimationFrame(boucleScan);
+  pause = false;
 });
-
-demarrerCamera();
 </script>
 </body>
 </html>
