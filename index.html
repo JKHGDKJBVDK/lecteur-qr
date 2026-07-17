@@ -97,7 +97,7 @@
 </head>
 <body>
 <div id="app">
-  <header>Lecteur QR &amp; codes-barres<span id="version">v1.2 — 17/07/2026</span></header>
+  <header>Lecteur QR &amp; codes-barres<span id="version">v1.3 — 17/07/2026</span></header>
   <div id="videoContainer">
     <video id="video" playsinline muted></video>
     <div id="viseur"></div>
@@ -128,8 +128,6 @@ const NOMS_FORMATS = {
   CODE_128: 'Code-barres Code 128'
 };
 
-let pause = false;
-
 const hints = new Map();
 hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
   ZXing.BarcodeFormat.QR_CODE,
@@ -138,27 +136,73 @@ hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
 ]);
 hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
-const lecteur = new ZXing.BrowserMultiFormatReader(hints);
+const lecteur = new ZXing.MultiFormatReader();
+lecteur.setHints(hints);
 
-lecteur.decodeFromConstraints(
-  {
-    video: {
-      facingMode: 'environment',
-      width: { ideal: 1920 },
-      height: { ideal: 1080 }
-    },
-    audio: false
-  },
-  video,
-  (res) => {
-    if (pause || !res) return;
-    pause = true;
-    afficherResultat(res.getText(), res.getBarcodeFormat());
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+let scanning = false;
+let derniereTentative = 0;
+
+function decoderCanvas() {
+  const source = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+  const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(source));
+  return lecteur.decode(bitmap); // lève une exception si rien n'est trouvé
+}
+
+async function demarrerCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    scanning = true;
+    requestAnimationFrame(boucleScan);
+  } catch (e) {
+    erreur.textContent = "Impossible d'accéder à la caméra. Vérifiez que la page est en HTTPS et que l'accès caméra est autorisé dans Réglages > Apps > Safari > Caméra.";
+    erreur.style.display = 'block';
   }
-).catch(() => {
-  erreur.textContent = "Impossible d'accéder à la caméra. Vérifiez que la page est en HTTPS et que l'accès caméra est autorisé dans Réglages > Apps > Safari > Caméra.";
-  erreur.style.display = 'block';
-});
+}
+
+function boucleScan(ts) {
+  if (!scanning) return;
+  if (video.readyState === video.HAVE_ENOUGH_DATA && ts - derniereTentative > 200) {
+    derniereTentative = ts;
+    const W = video.videoWidth, H = video.videoHeight;
+    let res = null;
+
+    // Passe 1 : image complète
+    canvas.width = W;
+    canvas.height = H;
+    ctx.drawImage(video, 0, 0, W, H);
+    try { res = decoderCanvas(); } catch (e) {}
+
+    // Passe 2 : zone centrale (viseur) agrandie x2, pour les petits codes
+    if (!res) {
+      const sw = Math.round(W * 0.8), sh = Math.round(H * 0.45);
+      const sx = Math.round((W - sw) / 2), sy = Math.round((H - sh) / 2);
+      canvas.width = sw * 2;
+      canvas.height = sh * 2;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw * 2, sh * 2);
+      try { res = decoderCanvas(); } catch (e) {}
+    }
+
+    if (res) {
+      scanning = false;
+      afficherResultat(res.getText(), res.getBarcodeFormat());
+      return;
+    }
+  }
+  requestAnimationFrame(boucleScan);
+}
 
 function afficherResultat(texte, format) {
   const nomFormat = NOMS_FORMATS[ZXing.BarcodeFormat[format]] || 'Code détecté';
@@ -182,8 +226,12 @@ btnCopier.addEventListener('click', async () => {
 
 btnReprendre.addEventListener('click', () => {
   resultat.classList.remove('visible');
-  pause = false;
+  scanning = true;
+  derniereTentative = 0;
+  requestAnimationFrame(boucleScan);
 });
+
+demarrerCamera();
 </script>
 </body>
 </html>
