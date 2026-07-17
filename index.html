@@ -24,6 +24,13 @@
     font-size: 17px;
     font-weight: 600;
   }
+  #version {
+    display: block;
+    font-size: 11px;
+    font-weight: 400;
+    color: #8e8e93;
+    margin-top: 2px;
+  }
   #videoContainer {
     position: relative;
     flex: 1;
@@ -90,7 +97,7 @@
 </head>
 <body>
 <div id="app">
-  <header>Lecteur QR &amp; codes-barres</header>
+  <header>Lecteur QR &amp; codes-barres<span id="version">v1.2 — 17/07/2026</span></header>
   <div id="videoContainer">
     <video id="video" playsinline muted></video>
     <div id="viseur"></div>
